@@ -1,9 +1,10 @@
 {
   "name": "web-fig",
-  "version": "1.0.0",
-  "description": "WhatsApp Sticker Bot (Meta Cloud API)",
+  "version": "2.0.0",
+  "description": "Suporte Estudo_Car no WhatsApp (Meta Cloud API)",
   "scripts": {
-    "install": "npm --prefix backend install",
-    "start": "npm --prefix backend start"
+    "install": "cd backend && npm install",
+    "start": "cd backend && npm start",
+    "test": "cd backend && npm test"
   }
 }

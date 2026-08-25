@@ -1,63 +1,82 @@
-# 🤖 Bot de Figurinhas do WhatsApp (Meta Cloud API)
+# 🚗 Suporte Estudo_Car no WhatsApp
 
-Bot que recebe **imagem, GIF ou vídeo** por chat e devolve como **figurinha de verdade**
-(`type: sticker`). Arquitetura stateless por webhook — sem QR, sem sessão, sem conexão
-aberta. Feito para consumir o mínimo de memória no Railway.
+Bot de WhatsApp que recebe **áudio, texto ou foto** e transforma em lançamento no
+sistema **Estudo_Car** — despesa, venda, compra, cadastro de carro.
 
-## Como funciona
+> Você manda: *"pintura do palio 92 azul, 500 reais em fofinho"*
+> Ele responde: **Adicionar despesa "Pintura" de R$ 500,00 ao carro ABC1234 — Fofinho**
+> com os botões **✅ Confirmo** / **❌ Reprovo**. Clicou em confirmar, gravou.
 
-1. Envie `/fig` para o número do bot.
-2. Mande uma imagem, GIF ou vídeo.
-3. Imagem/GIF → figurinha na hora. Vídeo → escolha "inteiro" ou "recorte exato" (`inicio duracao`, ex: `3 5`).
-4. Receba a figurinha. ✨
+## Arquitetura
 
-## Setup na Meta (manual, uma vez só)
+Este projeto é **só transporte**. Ele não conhece carro, despesa nem banco de dados.
 
-1. Acesse [developers.facebook.com](https://developers.facebook.com) → **Criar App** → tipo **Business**.
-2. No app, adicione o produto **WhatsApp**. A Meta fornece um **número de teste grátis**
-   (ou cadastre seu número dedicado).
-3. Anote em **WhatsApp → API Setup**:
-   - **Phone Number ID** → var `PHONE_NUMBER_ID`
-   - **Access Token** → var `WHATSAPP_TOKEN` (gere um token permanente via System User para produção)
-4. Em **WhatsApp → Configuration → Webhook**:
-   - **Callback URL**: `https://<seu-app>.up.railway.app/webhook`
-   - **Verify token**: a mesma string que você definir na var `VERIFY_TOKEN`
-   - Clique **Verify and save** e assine o campo **`messages`**.
-5. (Recomendado) Em **App Settings → Basic**, copie o **App Secret** → var `APP_SECRET`
-   (valida a assinatura dos webhooks).
+```
+WhatsApp ──webhook──> WEB_FIG (aqui)              Estudo_Car
+                      · valida a assinatura        · POST /api/wpp/mensagem
+                      · baixa a mídia      ─────>    · transcreve o áudio
+                      · manda pro Car               · extrai e classifica
+                      · devolve a resposta <─────   · confirma e grava no Supabase
+```
 
-> 💰 **Custo**: conversas iniciadas pelo usuário (ele manda mensagem, você responde em até 24h)
-> são gratuitas. Este bot só responde — nunca inicia conversa — então o uso é grátis.
-> No número de teste, adicione os destinatários permitidos no painel.
+Toda a regra de negócio vive no Estudo_Car, reaproveitando o mesmo `services/iaChat.js`
+que serve o chat do site. Uma fonte de verdade só — o que muda lá, muda aqui.
 
-## Variáveis de ambiente (Railway → Variables)
+## Fluxo
+
+1. Chega mensagem (áudio, texto, foto ou clique de botão).
+2. O bot marca como lida e mostra "digitando".
+3. Áudio e foto são baixados da Meta e enviados em base64 ao Estudo_Car.
+4. O Estudo_Car transcreve, entende, e devolve uma confirmação pronta.
+5. O bot mostra a confirmação com botões. Confirmado → grava.
+
+Áudio tem a transcrição ecoada na resposta (`🎤 "..."`), para você ver na hora se
+ele ouviu errado, em vez de descobrir depois com o lançamento torto.
+
+## Variáveis de ambiente
 
 | Variável | Obrigatória | Descrição |
 |---|---|---|
 | `WHATSAPP_TOKEN` | ✅ | Access token da Cloud API |
 | `PHONE_NUMBER_ID` | ✅ | ID do número no painel da Meta |
-| `VERIFY_TOKEN` | ✅ | String qualquer, igual à usada no cadastro do webhook |
-| `APP_SECRET` | recomendada | App Secret para validar assinatura do webhook |
+| `VERIFY_TOKEN` | ✅ | String qualquer, igual à cadastrada no webhook |
+| `APP_SECRET` | ✅ | App Secret da Meta — **sem ele o webhook recusa tudo** |
+| `ESTUDO_CAR_URL` | ✅ | `https://estudocar-production.up.railway.app` |
+| `INTERNAL_SECRET` | ✅ | O mesmo valor configurado no Estudo_Car |
 | `GRAPH_API_VERSION` | não | Default `v21.0` |
-| `PORT` | não | Railway injeta automaticamente |
+| `CAR_TIMEOUT_MS` | não | Default 60000 |
+| `PORT` | não | O Railway injeta |
 
-## Deploy no Railway
+**A allowlist de números não fica aqui** — fica no Estudo_Car (`WHATSAPP_AUTORIZADOS`),
+para não haver duas listas divergindo. Mensagem de número não autorizado é ignorada
+em silêncio: responder confirmaria a um estranho que este número existe.
 
-1. Conecte este repositório num serviço Node.
-2. Configure as variáveis acima.
-3. Deploy — o `npm start` da raiz sobe o webhook (`/health` disponível para healthcheck).
-4. Cadastre a URL pública no webhook da Meta (passo 4 do setup).
+### Sobre o `APP_SECRET`
 
-## Rodar local (para desenvolvimento)
+Não é opcional. Sem ele, qualquer um que descubra a URL do webhook consegue forjar
+uma mensagem e lançar despesa no financeiro. O servidor recusa (`503`) e grita no log
+enquanto a variável não estiver configurada.
+
+## Rodar local
 
 ```bash
-npm --prefix backend install
-WHATSAPP_TOKEN=... PHONE_NUMBER_ID=... VERIFY_TOKEN=qualquercoisa npm start
-# exponha com um túnel (ex: cloudflared/ngrok) para receber o webhook da Meta
+npm install
+npm test          # testes do transporte, sem tocar na Meta nem no Estudo_Car
+npm start
 ```
 
-## Limites de figurinha (aplicados automaticamente)
+Para receber webhooks de verdade, exponha com um túnel (cloudflared/ngrok) e cadastre
+a URL em **WhatsApp → Configuration → Webhook** no painel da Meta.
 
-- WebP 512x512, fundo transparente nas bordas.
-- Estática < 100KB; animada < 500KB (o bot recomprime até caber).
-- Vídeo: máx. 10 segundos, com recorte opcional.
+## Deploy
+
+Railway, projeto `web_sities`, ambiente `FIG`, serviço `WEB_FIG`.
+`npm start` sobe o webhook; `/health` responde ao healthcheck.
+
+## Limitações conhecidas
+
+- O número é de **teste** da Meta: só entrega para destinatários cadastrados na
+  allowlist do painel (máximo 5). Para atender qualquer pessoa, é preciso um número
+  dedicado com verificação de negócio.
+- Confirmação com mais de ~1000 caracteres (muitos lançamentos de uma vez) não cabe
+  na mensagem interativa; nesse caso vai como texto e o usuário responde *sim*/*não*.

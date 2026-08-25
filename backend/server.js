@@ -31,7 +31,6 @@ app.get('/webhook', (req, res) => {
 });
 
 function isValidSignature(req) {
-  if (!APP_SECRET) return true; // signature check disabled
   const signature = req.headers['x-hub-signature-256'];
   if (!signature || !req.rawBody) return false;
   const expected = 'sha256=' +
@@ -45,7 +44,16 @@ function isValidSignature(req) {
 
 // Webhook receiver
 app.post('/webhook', (req, res) => {
+  // Sem APP_SECRET qualquer um que descubra esta URL lança despesa no
+  // financeiro. Enquanto isso aqui só fazia figurinha dava para relevar; agora
+  // não. Recusa tudo, alto e claro, em vez de aceitar cegamente.
+  if (!APP_SECRET) {
+    console.error('APP_SECRET ausente — webhook recusado. Configure a variável no Railway.');
+    return res.sendStatus(503);
+  }
+
   if (!isValidSignature(req)) {
+    console.warn('Assinatura inválida — webhook descartado.');
     return res.sendStatus(403);
   }
 
@@ -68,5 +76,8 @@ app.post('/webhook', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Sticker bot webhook listening on port ${PORT}`);
+  console.log(`Suporte Estudo_Car — webhook ouvindo na porta ${PORT}`);
+  for (const v of ['WHATSAPP_TOKEN', 'PHONE_NUMBER_ID', 'VERIFY_TOKEN', 'APP_SECRET', 'ESTUDO_CAR_URL', 'INTERNAL_SECRET']) {
+    if (!process.env[v]) console.warn(`  ⚠️  ${v} não configurada`);
+  }
 });

@@ -1,6 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
 const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
@@ -45,27 +42,76 @@ async function graphFetch(url, options = {}) {
   return res;
 }
 
-/**
- * Sends a plain text message.
- */
-async function sendText(to, body) {
+async function postMessage(payload) {
   await graphFetch(`${BASE_URL}/${phoneNumberId()}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to: normalizeRecipient(to),
-      type: 'text',
-      text: { body }
-    })
+    body: JSON.stringify({ messaging_product: 'whatsapp', ...payload })
   });
 }
 
 /**
- * Downloads received media (by media id) to destPath.
- * Returns the media's mime type.
+ * Sends a plain text message.
  */
-async function downloadMedia(mediaId, destPath) {
+async function sendText(to, body) {
+  await postMessage({ to: normalizeRecipient(to), type: 'text', text: { body } });
+}
+
+// Limites da Cloud API para mensagem interativa.
+const LIMITE_CORPO = 1024;
+const LIMITE_TITULO = 20;
+
+/**
+ * Envia texto com botões de resposta rápida (máx. 3).
+ *
+ * Devolve false quando o corpo não cabe no limite da API — aí o chamador manda
+ * como texto puro em vez de perder a mensagem.
+ *
+ * @param {Array<{id: string, title: string}>} buttons
+ */
+async function sendButtons(to, body, buttons) {
+  if (!body || body.length > LIMITE_CORPO) return false;
+
+  await postMessage({
+    to: normalizeRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: body },
+      action: {
+        buttons: buttons.slice(0, 3).map(b => ({
+          type: 'reply',
+          reply: { id: b.id, title: b.title.slice(0, LIMITE_TITULO) }
+        }))
+      }
+    }
+  });
+
+  return true;
+}
+
+/**
+ * Marks the incoming message as read and shows the typing bubble.
+ *
+ * Transcribing plus reasoning takes several seconds; without this the user
+ * stares at silence and re-sends. Best-effort — never blocks the actual reply.
+ */
+async function showTyping(messageId) {
+  try {
+    await postMessage({
+      status: 'read',
+      message_id: messageId,
+      typing_indicator: { type: 'text' }
+    });
+  } catch (err) {
+    console.warn('Typing indicator failed (ignored):', err.message);
+  }
+}
+
+/**
+ * Downloads received media (by media id). Returns { buffer, mime }.
+ */
+async function downloadMedia(mediaId) {
   // 1. Resolve the short-lived media URL
   const metaRes = await graphFetch(`${BASE_URL}/${mediaId}`);
   const meta = await metaRes.json();
@@ -73,51 +119,14 @@ async function downloadMedia(mediaId, destPath) {
   // 2. Download the binary (also requires the Bearer token)
   const fileRes = await graphFetch(meta.url);
   const buffer = Buffer.from(await fileRes.arrayBuffer());
-  fs.writeFileSync(destPath, buffer);
 
-  return meta.mime_type;
-}
-
-/**
- * Uploads a local file to the Cloud API media endpoint. Returns the media id.
- */
-async function uploadMedia(filePath, mime) {
-  const form = new FormData();
-  form.append('messaging_product', 'whatsapp');
-  form.append('type', mime);
-  form.append(
-    'file',
-    new Blob([fs.readFileSync(filePath)], { type: mime }),
-    path.basename(filePath)
-  );
-
-  const res = await graphFetch(`${BASE_URL}/${phoneNumberId()}/media`, {
-    method: 'POST',
-    body: form
-  });
-  const data = await res.json();
-  return data.id;
-}
-
-/**
- * Sends a local .webp file as a real WhatsApp sticker.
- */
-async function sendSticker(to, webpPath) {
-  const mediaId = await uploadMedia(webpPath, 'image/webp');
-  await graphFetch(`${BASE_URL}/${phoneNumberId()}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to: normalizeRecipient(to),
-      type: 'sticker',
-      sticker: { id: mediaId }
-    })
-  });
+  return { buffer, mime: meta.mime_type };
 }
 
 module.exports = {
   sendText,
+  sendButtons,
+  showTyping,
   downloadMedia,
-  sendSticker
+  normalizeRecipient
 };
