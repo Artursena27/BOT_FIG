@@ -120,6 +120,51 @@ async function sendButtons(to, body, buttons) {
   return true;
 }
 
+// Limites da lista interativa na Cloud API.
+const LIMITE_BOTAO_LISTA = 20;
+const LIMITE_ROW_TITULO  = 24;
+const LIMITE_ROW_DESC    = 72;
+const MAX_ROWS           = 10;
+
+const corta = (t, n) => String(t || '').slice(0, n);
+
+/**
+ * Envia um menu de escolha única (até 10 opções).
+ *
+ * É o que substitui digitar placa: com 8 Palios cadastrados, botão não serve
+ * (o máximo são 3) e o usuário teria que digitar. A lista resolve num toque.
+ *
+ * Devolve false quando não cabe, para o chamador voltar a texto.
+ *
+ * @param {Array<{id: string, title: string, description?: string}>} rows
+ */
+async function sendList(to, body, buttonText, rows, sectionTitle = 'Opções') {
+  if (!body || body.length > LIMITE_TEXTO) return false;
+  if (!rows || rows.length < 1 || rows.length > MAX_ROWS) return false;
+
+  await postMessage({
+    to: normalizeRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: body },
+      action: {
+        button: corta(buttonText, LIMITE_BOTAO_LISTA),
+        sections: [{
+          title: corta(sectionTitle, 24),
+          rows: rows.map(r => ({
+            id: corta(r.id, 200),
+            title: corta(r.title, LIMITE_ROW_TITULO),
+            ...(r.description ? { description: corta(r.description, LIMITE_ROW_DESC) } : {})
+          }))
+        }]
+      }
+    }
+  });
+
+  return true;
+}
+
 /**
  * Marks the incoming message as read and shows the typing bubble.
  *
@@ -157,6 +202,7 @@ module.exports = {
   sendText,
   partirTexto,
   sendButtons,
+  sendList,
   showTyping,
   downloadMedia,
   normalizeRecipient

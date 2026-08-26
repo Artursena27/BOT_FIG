@@ -9,6 +9,7 @@ const carPath = require.resolve('./services/carClient.js');
 
 const enviados = [];   // mensagens de texto que sairiam para o WhatsApp
 const botoes   = [];   // mensagens interativas com botões
+const listas   = [];   // mensagens interativas de lista
 const chamadas = [];   // payloads que iriam para o Estudo_Car
 let typingDe   = [];   // ids marcados como "digitando"
 let respostaDoCar = { reply: 'ok', transcricao: null, naoAutorizado: false };
@@ -25,6 +26,14 @@ require.cache[waPath] = {
         if (parte.length > 4096) throw new Error('Param text.body must be at most 4096 characters long.');
         enviados.push({ to, body: parte });
       }
+    },
+    // Assinatura idêntica à real: (to, body, buttonText, rows, sectionTitle)
+    sendList: async (to, body, buttonText, rows, secao) => {
+      if (!Array.isArray(rows) || rows.length < 1 || rows.length > 10) return false;
+      if (buttonText.length > 20) return false;                 // limites da API
+      if (rows.some(r => r.title.length > 24)) return false;
+      listas.push({ to, body, buttonText, rows, secao });
+      return true;
     },
     sendButtons: async (to, body, bts) => {
       if (body.length > 1024) return false;          // mesmo limite da API real
@@ -55,6 +64,7 @@ const { handleMessage } = require('./services/bot');
 function reset() {
   enviados.length = 0;
   botoes.length = 0;
+  listas.length = 0;
   chamadas.length = 0;
   typingDe = [];
   respostaDoCar = { reply: 'ok', transcricao: null, naoAutorizado: false };
@@ -145,7 +155,52 @@ const USER = '5581982267438';
   assert(botoes.length === 0 && enviados.length === 1, 'corpo longo -> não usa botões');
   assert(ultimo(enviados).body.includes('*sim*'), 'fallback explica como responder por texto');
 
-  // 11. Resposta gigante é quebrada em partes, não estoura na API
+  // 11. Escolha com 3 alternativas vira BOTÃO
+  reset();
+  respostaDoCar = { reply: 'É documento de qual tipo?', transcricao: null, naoAutorizado: false,
+    opcoes: [{ id: 'crlv', titulo: 'CRLV' }, { id: 'crv', titulo: 'CRV' }, { id: 'atpv', titulo: 'ATPV' }] };
+  await handleMessage({ from: USER, id: 'wA', type: 'text', text: { body: 'foto de documento' } });
+  assert(botoes.length === 1 && listas.length === 0 && enviados.length === 0,
+    '3 opções -> botões, sem texto');
+  assert(ultimo(botoes).bts.map(b => b.id).join(',') === 'crlv,crv,atpv', 'ids das opções preservados');
+
+  // 12. Escolha com 8 alternativas vira LISTA (botão só aceita 3)
+  reset();
+  respostaDoCar = { reply: 'Achei mais de um Palio. Qual deles?', transcricao: null, naoAutorizado: false,
+    opcoes: Array.from({ length: 8 }, (_, i) => ({ id: `PLC${i}`, titulo: `Palio ${1996 + i}`, detalhe: 'Cor X' })) };
+  await handleMessage({ from: USER, id: 'wB', type: 'text', text: { body: 'pintura no palio' } });
+  assert(listas.length === 1 && botoes.length === 0, '8 opções -> lista');
+  assert(ultimo(listas).rows.length === 8, 'as 8 opções entraram na lista');
+  assert(ultimo(listas).rows.every(r => r.description), 'cada linha leva o detalhe');
+
+  // 13. Mais de 10 não cabe em lista: cai para texto COM as opções escritas
+  reset();
+  respostaDoCar = { reply: 'Qual deles?', transcricao: null, naoAutorizado: false,
+    opcoes: Array.from({ length: 14 }, (_, i) => ({ id: `P${i}`, titulo: `Carro ${i}` })) };
+  await handleMessage({ from: USER, id: 'wC', type: 'text', text: { body: 'x' } });
+  assert(listas.length === 1 && ultimo(listas).rows.length === 10, 'corta em 10, o teto da API');
+
+  // 14. Clique numa linha da lista volta como texto
+  reset();
+  await handleMessage({
+    from: USER, id: 'wD', type: 'interactive',
+    interactive: { type: 'list_reply', list_reply: { id: 'KHV7A97', title: 'Palio EDX 1996' } }
+  });
+  assert(ultimo(chamadas).texto === 'KHV7A97', 'clique na lista -> repassa o id (a placa)');
+
+  // 15. Sugestões saem DEPOIS da resposta, em mensagem própria
+  reset();
+  respostaDoCar = { reply: 'x'.repeat(2000), transcricao: null, naoAutorizado: false,
+    sugestoes: [{ id: 'me mostra o balancete do polo', titulo: 'Ver balancete' },
+                { id: 'quanto tem no caixa', titulo: 'Ver caixa' }] };
+  await handleMessage({ from: USER, id: 'wE', type: 'text', text: { body: 'lança 100' } });
+  assert(enviados.length >= 1, 'resposta longa sai como texto');
+  assert(botoes.length === 1, 'sugestões vêm em mensagem interativa separada');
+  assert(ultimo(botoes).body.length < 100, 'corpo da mensagem de sugestão é curto');
+  assert(ultimo(botoes).bts[0].id === 'me mostra o balancete do polo',
+    'o id do botão é o pedido inteiro, pronto para ser enviado');
+
+  // 16. Resposta gigante é quebrada em partes, não estoura na API
   reset();
   const linhao = Array.from({ length: 400 }, (_, i) => `🚗 CARRO${i} — modelo ano cor`).join('\n');
   respostaDoCar = { reply: linhao, transcricao: null, naoAutorizado: false, aguardandoConfirmacao: false };

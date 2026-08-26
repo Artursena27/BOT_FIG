@@ -1,5 +1,34 @@
-const { sendText, sendButtons, showTyping, downloadMedia } = require('./waClient');
+const { sendText, sendButtons, sendList, showTyping, downloadMedia } = require('./waClient');
 const { enviarMensagem } = require('./carClient');
+
+/**
+ * Mostra a escolha do jeito mais tocável que a API permitir.
+ *
+ * Até 3 alternativas cabem em botão, que é o formato mais rápido. De 4 a 10 vai
+ * para lista. Passando disso, ou se o corpo não couber, volta para texto — mas
+ * aí as opções precisam aparecer escritas, senão o usuário não sabe o que
+ * responder.
+ */
+async function oferecerEscolha(from, corpo, opcoes) {
+  const itens = opcoes.slice(0, 10);
+
+  if (itens.length <= 3) {
+    const ok = await sendButtons(from, corpo, itens.map(o => ({ id: o.id, title: o.titulo })));
+    if (ok) return true;
+  } else {
+    const ok = await sendList(
+      from, corpo, 'Escolher',
+      itens.map(o => ({ id: o.id, title: o.titulo, description: o.detalhe })),
+      'Opções'
+    );
+    if (ok) return true;
+  }
+
+  // Fallback: sem o menu, o texto tem que dizer quais são as alternativas.
+  const escritas = itens.map((o, i) => `${i + 1}. ${o.titulo}${o.detalhe ? ` — ${o.detalhe}` : ''}`);
+  await sendText(from, [corpo, '', ...escritas, '', 'Responda o número.'].join('\n'));
+  return true;
+}
 
 const ERRO_GENERICO =
   '❌ Não consegui falar com o sistema agora. Tenta de novo em instantes.';
@@ -80,18 +109,12 @@ async function handleMessage(msg) {
     await showTyping(msg.id);
 
     const payload = await montarPayload(from, entrada);
-    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao, avisos } = await enviarMensagem(payload);
+    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao, opcoes, sugestoes } =
+      await enviarMensagem(payload);
 
     if (naoAutorizado) {
       console.warn(`Mensagem ignorada — número fora da allowlist: ${from}`);
       return;
-    }
-
-    // Avisos que ficaram na fila saem primeiro, cada um como mensagem própria:
-    // misturar um resumo semanal dentro da resposta faria as duas coisas
-    // parecerem uma só.
-    for (const aviso of avisos || []) {
-      await sendText(from, aviso);
     }
 
     if (!reply) return;
@@ -101,6 +124,12 @@ async function handleMessage(msg) {
     const corpo = transcricao
       ? `🎤 _"${transcricao}"_\n\n${reply}`
       : reply;
+
+    // Escolha entre alternativas conhecidas nunca deveria exigir digitação.
+    if (opcoes && opcoes.length) {
+      await oferecerEscolha(from, corpo, opcoes);
+      return;
+    }
 
     if (aguardandoConfirmacao) {
       const foi = await sendButtons(from, corpo, [
@@ -117,6 +146,13 @@ async function handleMessage(msg) {
     }
 
     await sendText(from, corpo);
+
+    // Sugestões vão numa mensagem separada e curta, de propósito: a resposta
+    // pode passar de 1024 chars (o teto da mensagem interativa), e enfiar os
+    // atalhos dentro dela derrubaria os botões justamente nas respostas longas.
+    if (sugestoes && sugestoes.length) {
+      await oferecerEscolha(from, 'Quer ver mais alguma coisa?', sugestoes);
+    }
   } catch (err) {
     console.error('Erro ao tratar mensagem:', err);
     try {

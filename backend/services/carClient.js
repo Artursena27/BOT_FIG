@@ -77,7 +77,7 @@ async function enviarMensagem(payload) {
   // Número fora da allowlist: o silêncio é a resposta certa — responder
   // confirmaria para um estranho que este número existe e o que ele faz.
   if (res.status === 403) {
-    return { reply: null, transcricao: null, aguardandoConfirmacao: false, avisos: [], naoAutorizado: true };
+    return { reply: null, transcricao: null, aguardandoConfirmacao: false, opcoes: [], sugestoes: [], naoAutorizado: true };
   }
 
   const data = await res.json().catch(() => ({}));
@@ -91,7 +91,11 @@ async function enviarMensagem(payload) {
     transcricao: data.transcricao || null,
     aguardandoConfirmacao: data.aguardandoConfirmacao === true,
     // Resumos que ficaram presos fora da janela de 24h e agora podem sair.
-    avisos: Array.isArray(data.avisos) ? data.avisos : [],
+    // Escolhas que devem virar botão ou lista tocável em vez de digitação.
+    opcoes: Array.isArray(data.opcoes) ? data.opcoes : [],
+    // Atalhos para o próximo pedido. O id de cada um é a mensagem que será
+    // enviada quando o usuário tocar.
+    sugestoes: Array.isArray(data.sugestoes) ? data.sugestoes : [],
     naoAutorizado: false
   };
 }
