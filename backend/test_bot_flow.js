@@ -10,6 +10,7 @@ const carPath = require.resolve('./services/carClient.js');
 const enviados = [];   // mensagens de texto que sairiam para o WhatsApp
 const botoes   = [];   // mensagens interativas com botões
 const listas   = [];   // mensagens interativas de lista
+const audios   = [];   // mensagens de voz
 const chamadas = [];   // payloads que iriam para o Estudo_Car
 let typingDe   = [];   // ids marcados como "digitando"
 let respostaDoCar = { reply: 'ok', transcricao: null, naoAutorizado: false };
@@ -40,6 +41,11 @@ require.cache[waPath] = {
       botoes.push({ to, body, bts });
       return true;
     },
+    sendAudio: async (to, buffer) => {
+      // A API só trata como mensagem de voz se for OGG/Opus.
+      if (buffer.slice(0, 4).toString('ascii') !== 'OggS') throw new Error('audio nao e OGG');
+      audios.push({ to, bytes: buffer.length });
+    },
     showTyping: async (id) => { typingDe.push(id); },
     downloadMedia: async (mediaId) => ({
       buffer: Buffer.from(`bytes-de-${mediaId}`),
@@ -65,6 +71,7 @@ function reset() {
   enviados.length = 0;
   botoes.length = 0;
   listas.length = 0;
+  audios.length = 0;
   chamadas.length = 0;
   typingDe = [];
   respostaDoCar = { reply: 'ok', transcricao: null, naoAutorizado: false };
@@ -200,7 +207,17 @@ const USER = '5581982267438';
   assert(ultimo(botoes).bts[0].id === 'me mostra o balancete do polo',
     'o id do botão é o pedido inteiro, pronto para ser enviado');
 
-  // 16. Resposta gigante é quebrada em partes, não estoura na API
+  // 16. Resposta falada: o áudio da resposta REALMENTE sai
+  reset();
+  const ogg = Buffer.concat([Buffer.from('OggS'), Buffer.alloc(500)]);
+  respostaDoCar = { reply: null, transcricao: null, naoAutorizado: false,
+    audioBase64: ogg.toString('base64') };
+  await handleMessage({ from: USER, id: 'wF', type: 'text', text: { body: 'me responde em áudio: quantos carros' } });
+  assert(audios.length === 1, 'resposta falada é enviada como voz', `enviou ${audios.length}`);
+  assert(enviados.length === 0, 'sem texto duplicado quando a resposta é falada');
+  assert(ultimo(audios).bytes === ogg.length, 'os bytes chegam inteiros');
+
+  // 17. Resposta gigante é quebrada em partes, não estoura na API
   reset();
   const linhao = Array.from({ length: 400 }, (_, i) => `🚗 CARRO${i} — modelo ano cor`).join('\n');
   respostaDoCar = { reply: linhao, transcricao: null, naoAutorizado: false, aguardandoConfirmacao: false };

@@ -77,7 +77,7 @@ async function enviarMensagem(payload) {
   // Número fora da allowlist: o silêncio é a resposta certa — responder
   // confirmaria para um estranho que este número existe e o que ele faz.
   if (res.status === 403) {
-    return { reply: null, transcricao: null, aguardandoConfirmacao: false, opcoes: [], sugestoes: [], naoAutorizado: true };
+    return { reply: null, transcricao: null, aguardandoConfirmacao: false, opcoes: [], sugestoes: [], audioBase64: null, naoAutorizado: true };
   }
 
   const data = await res.json().catch(() => ({}));
@@ -96,6 +96,8 @@ async function enviarMensagem(payload) {
     // Atalhos para o próximo pedido. O id de cada um é a mensagem que será
     // enviada quando o usuário tocar.
     sugestoes: Array.isArray(data.sugestoes) ? data.sugestoes : [],
+    // Resposta falada, quando o usuário pediu áudio. Vem pronta em OGG/Opus.
+    audioBase64: data.audioBase64 || null,
     naoAutorizado: false
   };
 }

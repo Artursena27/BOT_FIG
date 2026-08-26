@@ -1,4 +1,4 @@
-const { sendText, sendButtons, sendList, showTyping, downloadMedia } = require('./waClient');
+const { sendText, sendButtons, sendList, sendAudio, showTyping, downloadMedia } = require('./waClient');
 const { enviarMensagem } = require('./carClient');
 
 /**
@@ -109,12 +109,20 @@ async function handleMessage(msg) {
     await showTyping(msg.id);
 
     const payload = await montarPayload(from, entrada);
-    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao, opcoes, sugestoes } =
+    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao, opcoes, sugestoes, audioBase64 } =
       await enviarMensagem(payload);
 
     if (naoAutorizado) {
       console.warn(`Mensagem ignorada — número fora da allowlist: ${from}`);
       return;
+    }
+
+    // Pediu resposta falada: o Estudo_Car já devolveu o OGG/Opus pronto. Sem
+    // isto o áudio era gerado, mandado pela API e descartado aqui — o usuário
+    // pedia voz e não recebia nada, porque o texto vem nulo nesse caso.
+    if (audioBase64) {
+      await sendAudio(from, Buffer.from(audioBase64, 'base64'));
+      if (!reply) return;
     }
 
     if (!reply) return;
