@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { handleMessage } = require('./services/bot');
+const { notificar } = require('./services/notificador');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -13,6 +14,23 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
+
+// Aviso partindo do sistema (resumo semanal, venda registrada...). Chamado pelo
+// Estudo_Car, nunca pela internet aberta.
+app.post('/notificar', async (req, res) => {
+  if (!process.env.INTERNAL_SECRET) {
+    return res.status(503).json({ erro: 'INTERNAL_SECRET não configurado' });
+  }
+  if (req.headers['x-internal-secret'] !== process.env.INTERNAL_SECRET) {
+    return res.sendStatus(401);
+  }
+
+  const { para, texto } = req.body || {};
+  if (!para || !texto) return res.status(400).json({ erro: 'para e texto são obrigatórios' });
+
+  const r = await notificar(para, texto);
+  return res.json(r);
+});
 
 // Healthcheck (Railway)
 app.get('/health', (req, res) => res.sendStatus(200));

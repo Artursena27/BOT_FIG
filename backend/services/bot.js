@@ -80,11 +80,18 @@ async function handleMessage(msg) {
     await showTyping(msg.id);
 
     const payload = await montarPayload(from, entrada);
-    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao } = await enviarMensagem(payload);
+    const { reply, transcricao, naoAutorizado, aguardandoConfirmacao, avisos } = await enviarMensagem(payload);
 
     if (naoAutorizado) {
       console.warn(`Mensagem ignorada — número fora da allowlist: ${from}`);
       return;
+    }
+
+    // Avisos que ficaram na fila saem primeiro, cada um como mensagem própria:
+    // misturar um resumo semanal dentro da resposta faria as duas coisas
+    // parecerem uma só.
+    for (const aviso of avisos || []) {
+      await sendText(from, aviso);
     }
 
     if (!reply) return;
