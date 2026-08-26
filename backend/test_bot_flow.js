@@ -2,6 +2,9 @@
 // real à Meta ou ao Estudo_Car.
 
 const waPath  = require.resolve('./services/waClient.js');
+// Guarda a função REAL de quebra antes de dublar o módulo, para o dublê exercitar
+// a lógica de verdade em vez de fingir que ela existe.
+const { partirTexto } = require('./services/waClient.js');
 const carPath = require.resolve('./services/carClient.js');
 
 const enviados = [];   // mensagens de texto que sairiam para o WhatsApp
@@ -14,7 +17,15 @@ let erroDoCar = null;
 require.cache[waPath] = {
   id: waPath, filename: waPath, loaded: true,
   exports: {
-    sendText: async (to, body) => { enviados.push({ to, body }); },
+    sendText: async (to, body) => {
+      // Reproduz o sendText real: quebra no limite e manda parte por parte.
+      // A API rejeita a mensagem INTEIRA acima de 4096 chars, então o dublê
+      // estoura igual se alguma parte passar.
+      for (const parte of partirTexto(body)) {
+        if (parte.length > 4096) throw new Error('Param text.body must be at most 4096 characters long.');
+        enviados.push({ to, body: parte });
+      }
+    },
     sendButtons: async (to, body, bts) => {
       if (body.length > 1024) return false;          // mesmo limite da API real
       botoes.push({ to, body, bts });
@@ -134,9 +145,22 @@ const USER = '5581982267438';
   assert(botoes.length === 0 && enviados.length === 1, 'corpo longo -> não usa botões');
   assert(ultimo(enviados).body.includes('*sim*'), 'fallback explica como responder por texto');
 
-  // 11. Texto vazio é ignorado sem ruído
+  // 11. Resposta gigante é quebrada em partes, não estoura na API
   reset();
-  await handleMessage({ from: USER, id: 'w11', type: 'text', text: { body: '   ' } });
+  const linhao = Array.from({ length: 400 }, (_, i) => `🚗 CARRO${i} — modelo ano cor`).join('\n');
+  respostaDoCar = { reply: linhao, transcricao: null, naoAutorizado: false, aguardandoConfirmacao: false };
+  await handleMessage({ from: USER, id: 'w12', type: 'text', text: { body: 'lista os carros' } });
+  assert(enviados.length > 1, 'resposta longa -> quebrada em várias mensagens', `virou ${enviados.length}`);
+  assert(enviados.every(e => e.body.length <= 4096), 'nenhuma parte passa de 4096 chars',
+    `maior: ${Math.max(...enviados.map(e => e.body.length))}`);
+  assert(enviados.every(e => !e.body.includes('CARRO0 ') || e.body.startsWith('🚗 CARRO0')),
+    'corte respeita a quebra de linha');
+  assert(enviados.map(e => e.body).join('\n').replace(/\s/g, '') === linhao.replace(/\s/g, ''),
+    'nada é perdido no meio do caminho');
+
+  // 12. Texto vazio é ignorado sem ruído
+  reset();
+  await handleMessage({ from: USER, id: 'w13', type: 'text', text: { body: '   ' } });
   assert(chamadas.length === 0 && enviados.length === 0, 'texto vazio -> ignorado');
 
   console.log(falhas ? `\n❌ ${falhas} TESTE(S) FALHARAM` : '\n✅ TODOS OS TESTES PASSARAM');

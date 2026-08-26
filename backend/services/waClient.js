@@ -50,11 +50,41 @@ async function postMessage(payload) {
   });
 }
 
+// Teto de um texto na Cloud API. Passar disso não trunca: a API rejeita a
+// mensagem inteira com erro 100.
+const LIMITE_TEXTO = 4096;
+
 /**
- * Sends a plain text message.
+ * Quebra um texto em pedaços que cabem no limite, cortando em quebra de linha
+ * quando dá (listas de carros já vêm uma por linha), depois em espaço, e só
+ * no meio da palavra se não houver alternativa.
+ */
+function partirTexto(texto, limite = LIMITE_TEXTO) {
+  const partes = [];
+  let resto = String(texto ?? '');
+
+  while (resto.length > limite) {
+    const minimo = Math.floor(limite / 2);   // não aceita corte cedo demais
+    let corte = resto.lastIndexOf('\n', limite);
+    if (corte < minimo) corte = resto.lastIndexOf(' ', limite);
+    if (corte < minimo) corte = limite;
+
+    partes.push(resto.slice(0, corte).trimEnd());
+    resto = resto.slice(corte).trimStart();
+  }
+
+  if (resto) partes.push(resto);
+  return partes;
+}
+
+/**
+ * Sends a plain text message, splitting it when it exceeds the API limit.
  */
 async function sendText(to, body) {
-  await postMessage({ to: normalizeRecipient(to), type: 'text', text: { body } });
+  const destino = normalizeRecipient(to);
+  for (const parte of partirTexto(body)) {
+    await postMessage({ to: destino, type: 'text', text: { body: parte } });
+  }
 }
 
 // Limites da Cloud API para mensagem interativa.
@@ -125,6 +155,7 @@ async function downloadMedia(mediaId) {
 
 module.exports = {
   sendText,
+  partirTexto,
   sendButtons,
   showTyping,
   downloadMedia,
