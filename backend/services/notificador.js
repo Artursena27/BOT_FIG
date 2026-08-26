@@ -8,7 +8,7 @@
  * contato em vez de perdê-lo.
  */
 
-const { sendText } = require('./waClient');
+const { sendText, sendAudio } = require('./waClient');
 
 // "Message failed to send because more than 24 hours have passed since the
 // customer last replied" — e os primos dele.
@@ -22,9 +22,21 @@ function codigoDoErro(mensagem) {
 /**
  * @returns {Promise<{entregue: boolean, foraDaJanela: boolean, erro?: string}>}
  */
-async function notificar(para, texto) {
+async function notificar(para, texto, audioBase64) {
   try {
+    // Texto primeiro: é o que dá para reler e conferir número. A voz vem depois,
+    // para quem está dirigindo e não vai desbloquear o celular.
     await sendText(para, texto);
+
+    if (audioBase64) {
+      try {
+        await sendAudio(para, Buffer.from(audioBase64, 'base64'));
+      } catch (e) {
+        // Áudio é o extra: se falhar, o aviso em texto já chegou.
+        console.warn(`Áudio do aviso não saiu para ${para}:`, e.message);
+      }
+    }
+
     return { entregue: true, foraDaJanela: false };
   } catch (err) {
     const codigo = codigoDoErro(err.message);

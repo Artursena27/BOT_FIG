@@ -25,10 +25,10 @@ app.post('/notificar', async (req, res) => {
     return res.sendStatus(401);
   }
 
-  const { para, texto } = req.body || {};
+  const { para, texto, audioBase64 } = req.body || {};
   if (!para || !texto) return res.status(400).json({ erro: 'para e texto são obrigatórios' });
 
-  const r = await notificar(para, texto);
+  const r = await notificar(para, texto, audioBase64);
   return res.json(r);
 });
 

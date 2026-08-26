@@ -184,6 +184,25 @@ async function showTyping(messageId) {
 }
 
 /**
+ * Envia áudio como mensagem de voz.
+ *
+ * Precisa ser OGG/Opus: é o que o WhatsApp renderiza com a ondinha, tocando na
+ * própria conversa. Em mp3 vira anexo de arquivo, que no celular é bem pior.
+ */
+async function sendAudio(to, buffer, filename = 'voz.ogg') {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', 'audio/ogg');
+  form.append('file', new Blob([buffer], { type: 'audio/ogg' }), filename);
+
+  const up = await graphFetch(`${BASE_URL}/${phoneNumberId()}/media`, { method: 'POST', body: form });
+  const { id } = await up.json();
+  if (!id) throw new Error('Upload de áudio não retornou id');
+
+  await postMessage({ to: normalizeRecipient(to), type: 'audio', audio: { id } });
+}
+
+/**
  * Downloads received media (by media id). Returns { buffer, mime }.
  */
 async function downloadMedia(mediaId) {
@@ -203,6 +222,7 @@ module.exports = {
   partirTexto,
   sendButtons,
   sendList,
+  sendAudio,
   showTyping,
   downloadMedia,
   normalizeRecipient
