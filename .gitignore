@@ -1,10 +1,14 @@
 # Segredos — NUNCA commitar
 railway_key.json
 .env
+.env*.local
 *.local
 
 # Dependências
 node_modules/
 
-# Uploads temporários
-backend/uploads/
+# Binário do yt-dlp, baixado no postinstall
+bin/
+
+# Vercel
+.vercel/

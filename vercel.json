@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/webhook.js": {
+      "maxDuration": 300,
+      "includeFiles": "{bin/**,node_modules/ffmpeg-static/ffmpeg}"
+    },
+    "api/tick.js": {
+      "maxDuration": 60
+    }
+  }
+}

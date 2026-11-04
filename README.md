@@ -1,82 +1,74 @@
-# 🚗 Suporte Estudo_Car no WhatsApp
+# 🤖 Agente pessoal no WhatsApp
 
-Bot de WhatsApp que recebe **áudio, texto ou foto** e transforma em lançamento no
-sistema **Estudo_Car** — despesa, venda, compra, cadastro de carro.
+Assistente particular que conversa pelo WhatsApp (texto, áudio, foto, vídeo e links)
+e executa tarefas:
 
-> Você manda: *"pintura do palio 92 azul, 500 reais em fofinho"*
-> Ele responde: **Adicionar despesa "Pintura" de R$ 500,00 ao carro ABC1234 — Fofinho**
-> com os botões **✅ Confirmo** / **❌ Reprovo**. Clicou em confirmar, gravou.
+| Função | Exemplo |
+|---|---|
+| **Lembretes** | "me avise quarta de renovar o livro" → na quarta às 09:00 chega 🔔 |
+| **Finanças** | "gastei 45 no mercado" · "quanto gastei esse mês?" |
+| **Memória** | "guarda aí: o aniversário da Maria é 12/03" |
+| **Figurinhas** | foto ou vídeo **sem legenda** vira figurinha na hora; "faz uma figurinha de um gato de óculos" gera uma do zero |
+| **GIFs** | vídeo com a legenda "faz um gif" |
+| **Transcrição** | manda um link do YouTube, X, Instagram ou TikTok |
+
+Áudios são transcritos e tratados como texto, então tudo acima funciona falando.
+
+## Custo: só o da OpenAI
+
+| Peça | Serviço | Plano |
+|---|---|---|
+| Servidor | Vercel | Hobby (grátis) |
+| Banco + relógio dos lembretes | Supabase (Postgres + `pg_cron`) | Free |
+| WhatsApp | Meta Cloud API | conversas iniciadas pelo usuário são grátis |
+| Cérebro, transcrição, imagens | OpenAI | pago por uso |
+
+A Vercel grátis só roda cron uma vez por dia. Por isso o relógio fica no Supabase:
+o `pg_cron` confere a cada minuto se há lembrete vencido e só então chama `/api/tick`.
 
 ## Arquitetura
 
-Este projeto é **só transporte**. Ele não conhece carro, despesa nem banco de dados.
-
 ```
-WhatsApp ──webhook──> WEB_FIG (aqui)              Estudo_Car
-                      · valida a assinatura        · POST /api/wpp/mensagem
-                      · baixa a mídia      ─────>    · transcreve o áudio
-                      · manda pro Car               · extrai e classifica
-                      · devolve a resposta <─────   · confirma e grava no Supabase
+WhatsApp ─▶ Meta ─▶ /api/webhook ─▶ lib/bot.js ─▶ lib/agente.js (OpenAI + ferramentas)
+                                                        │
+                                   lib/ferramentas.js ──┼─ lembretes · finanças · memória
+                                                        └─ figurinhas/GIF (ffmpeg, sharp) · transcrição (yt-dlp)
+Supabase pg_cron ─(lembrete vencido)─▶ /api/tick ─▶ WhatsApp
 ```
 
-Toda a regra de negócio vive no Estudo_Car, reaproveitando o mesmo `services/iaChat.js`
-que serve o chat do site. Uma fonte de verdade só — o que muda lá, muda aqui.
+**Para criar uma função nova**, acrescente um item em `FERRAMENTAS`
+([lib/ferramentas.js](lib/ferramentas.js)): uma descrição para o modelo e uma função `executar`.
 
-## Fluxo
+## Janela de 24h da Meta
 
-1. Chega mensagem (áudio, texto, foto ou clique de botão).
-2. O bot marca como lida e mostra "digitando".
-3. Áudio e foto são baixados da Meta e enviados em base64 ao Estudo_Car.
-4. O Estudo_Car transcreve, entende, e devolve uma confirmação pronta.
-5. O bot mostra a confirmação com botões. Confirmado → grava.
+O WhatsApp só deixa o bot mandar mensagem livre se você falou com ele nas últimas
+24h. Um lembrete marcado para dias depois usa o **template `lembrete`**
+(`npm run template` cria). Se o template não estiver aprovado, o lembrete fica
+guardado e sai assim que você mandar qualquer mensagem.
 
-Áudio tem a transcrição ecoada na resposta (`🎤 "..."`), para você ver na hora se
-ele ouviu errado, em vez de descobrir depois com o lançamento torto.
+## Instalação
 
-## Variáveis de ambiente
+1. **Supabase**: crie um projeto e ative as extensões `pg_cron` e `pg_net`
+   (Database → Extensions). Copie a connection string do *Transaction pooler*.
+2. **Vercel**: importe o repositório. Cadastre as variáveis do [.env.example](.env.example).
+3. **Banco**: crie um `.env` local (copie do `.env.example`) e rode `npm run db:setup`.
+4. **Template**: `npm run template`.
+5. **Meta**: em WhatsApp → Configuration, mude o webhook para
+   `https://SEU-PROJETO.vercel.app/api/webhook` (verify token = `VERIFY_TOKEN`)
+   e assine o campo `messages`.
+6. Abra `https://SEU-PROJETO.vercel.app/api/health`: tem de responder `"ok": true`.
 
-| Variável | Obrigatória | Descrição |
-|---|---|---|
-| `WHATSAPP_TOKEN` | ✅ | Access token da Cloud API |
-| `PHONE_NUMBER_ID` | ✅ | ID do número no painel da Meta |
-| `VERIFY_TOKEN` | ✅ | String qualquer, igual à cadastrada no webhook |
-| `APP_SECRET` | ✅ | App Secret da Meta — **sem ele o webhook recusa tudo** |
-| `ESTUDO_CAR_URL` | ✅ | `https://estudocar-production.up.railway.app` |
-| `INTERNAL_SECRET` | ✅ | O mesmo valor configurado no Estudo_Car |
-| `GRAPH_API_VERSION` | não | Default `v21.0` |
-| `CAR_TIMEOUT_MS` | não | Default 60000 |
-| `PORT` | não | O Railway injeta |
-
-**A allowlist de números não fica aqui** — fica no Estudo_Car (`WHATSAPP_AUTORIZADOS`),
-para não haver duas listas divergindo. Mensagem de número não autorizado é ignorada
-em silêncio: responder confirmaria a um estranho que este número existe.
-
-### Sobre o `APP_SECRET`
-
-Não é opcional. Sem ele, qualquer um que descubra a URL do webhook consegue forjar
-uma mensagem e lançar despesa no financeiro. O servidor recusa (`503`) e grita no log
-enquanto a variável não estiver configurada.
-
-## Rodar local
+## Desenvolvimento
 
 ```bash
 npm install
-npm test          # testes do transporte, sem tocar na Meta nem no Estudo_Car
-npm start
+npm test            # 48 testes; o banco roda em memória (PGlite), sem Supabase
+npm run conversar   # conversa com o agente no terminal (usa o .env)
 ```
 
-Para receber webhooks de verdade, exponha com um túnel (cloudflared/ngrok) e cadastre
-a URL em **WhatsApp → Configuration → Webhook** no painel da Meta.
+## Transcrição bloqueada
 
-## Deploy
-
-Railway, projeto `web_sities`, ambiente `FIG`, serviço `WEB_FIG`.
-`npm start` sobe o webhook; `/health` responde ao healthcheck.
-
-## Limitações conhecidas
-
-- O número é de **teste** da Meta: só entrega para destinatários cadastrados na
-  allowlist do painel (máximo 5). Para atender qualquer pessoa, é preciso um número
-  dedicado com verificação de negócio.
-- Confirmação com mais de ~1000 caracteres (muitos lançamentos de uma vez) não cabe
-  na mensagem interativa; nesse caso vai como texto e o usuário responde *sim*/*não*.
+YouTube e Instagram às vezes bloqueiam downloads vindos de servidores. Se a resposta
+for "o site bloqueou o download…", exporte os cookies de uma conta logada (extensão
+*Get cookies.txt LOCALLY*, só do domínio necessário) e cole o conteúdo na variável
+`YTDLP_COOKIES` da Vercel.

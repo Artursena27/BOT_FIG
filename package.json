@@ -1,10 +1,28 @@
 {
-  "name": "web-fig",
-  "version": "2.0.0",
-  "description": "Suporte Estudo_Car no WhatsApp (Meta Cloud API)",
+  "name": "agente-whatsapp",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Agente pessoal no WhatsApp (Meta Cloud API + OpenAI), rodando na Vercel",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
-    "install": "cd backend && npm install",
-    "start": "cd backend && npm start",
-    "test": "cd backend && npm test"
+    "postinstall": "node scripts/baixar-ytdlp.js",
+    "test": "node --test \"test/*.test.js\"",
+    "db:setup": "node --env-file-if-exists=.env scripts/setup-db.js",
+    "template": "node --env-file-if-exists=.env scripts/criar-template.js",
+    "conversar": "node --env-file-if-exists=.env scripts/conversar.js"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.10.6",
+    "ffmpeg-static": "^5.3.0",
+    "openai": "^7.47.0",
+    "postgres": "^4.0.0",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "@electric-sql/pglite-socket": "^0.2.18"
   }
 }
