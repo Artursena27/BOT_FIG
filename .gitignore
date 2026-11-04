@@ -12,3 +12,7 @@ bin/
 
 # Vercel
 .vercel/
+
+.vercel
+.env*
+!.env.example

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rodarAgente, montarSistema } from '../lib/agente.js';
+import { rodarAgente, montarSistema, completarComReserva } from '../lib/agente.js';
 import { DEFINICOES } from '../lib/ferramentas.js';
 
 /** Cliente OpenAI falso que devolve as respostas roteirizadas, em ordem. */
@@ -88,6 +88,35 @@ test('para depois de muitos passos em vez de girar para sempre', async () => {
   const r = await rodarAgente({ entrada: 'x', cliente, ferramentas: [ferramentaFalsa('somar', async () => 1)] });
   assert.match(r.texto, /reformular/);
   assert.equal(cliente.pedidos.length, 8);
+});
+
+test('modelo lotado passa para o reserva; erro do pedido não', async () => {
+  process.env.LLM_MODELO = 'principal';
+  process.env.LLM_MODELOS_RESERVA = 'reserva1, reserva2';
+  const tentados = [];
+  const erro = status => Object.assign(new Error(`HTTP ${status}`), { status });
+  const cliente = {
+    chat: { completions: { async create({ model }) {
+      tentados.push(model);
+      if (model === 'principal') throw erro(503);
+      if (model === 'reserva1') throw erro(429);
+      return { choices: [{ message: { role: 'assistant', content: 'oi' } }] };
+    } } }
+  };
+
+  try {
+    const r = await completarComReserva(cliente, { messages: [] });
+    assert.equal(r.choices[0].message.content, 'oi');
+    assert.deepEqual(tentados, ['principal', 'reserva1', 'reserva2']);
+
+    tentados.length = 0;
+    cliente.chat.completions.create = async ({ model }) => { tentados.push(model); throw erro(400); };
+    await assert.rejects(completarComReserva(cliente, { messages: [] }), /400/);
+    assert.deepEqual(tentados, ['principal'], 'pedido inválido não adianta repetir');
+  } finally {
+    delete process.env.LLM_MODELO;
+    delete process.env.LLM_MODELOS_RESERVA;
+  }
 });
 
 test('prompt de sistema traz data, memórias e categorias', () => {
