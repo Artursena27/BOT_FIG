@@ -61,7 +61,7 @@ const criado = await graph(`${waba}/message_templates`, {
         text: '🔔 Lembrete: {{1}}\n\nResponda esta mensagem para falar comigo.',
         example: { body_text: [['Renovar o livro na biblioteca']] }
       },
-      { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: '✅ Visto' }] }
+      { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Visto' }] }
     ]
   })
 });
